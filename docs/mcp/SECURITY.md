@@ -1,65 +1,100 @@
-# MCP Security Model
+# MCP Security Model (Day 4 Homework)
 
-This document describes the threat model for every MCP server connected to or built in this repo. Update it whenever you add, remove, or change an MCP.
+This document applies the workshop security acceptance criteria for MCP usage in this repository.
 
-## Trust assumptions
+## Scope and Trust Baseline
 
-- The **user** trusts the **host** (Cursor, Claude Code, VS Code, ...) to enforce per-tool consent.
-- The **user** trusts each **server author** the same way as any installed package — review code before enabling.
-- The **server** trusts the host to enforce roots, scopes, rate limits, and confirmation prompts.
+- Project MCP config lives in `.cursor/mcp.json` (local) and is bootstrapped from `.cursor/mcp.json.example`.
+- User-level defaults can exist in `~/.cursor/mcp.json`, but project config is the source of truth for homework.
+- Secrets are injected only through environment variables (`${env:VAR}`), never hard-coded.
+- Versions are pinned (no `@latest`).
+- Sensitive servers are disabled until needed (`"disabled": true`).
 
-## Workshop defaults
+## Selected Servers
 
-- `.cursor/mcp.json` is **gitignored**. Only `.cursor/mcp.json.example` is committed.
-- All secrets are read from environment variables via `${env:VAR}`. **No literal tokens** in config.
-- Filesystem servers are scoped to the smallest possible set of directories.
-- All public servers are pinned to a specific version (no `@latest`).
-- Servers that are not actively used are marked `"disabled": true`.
+For this workshop, the selected public MCPs are:
 
-## Per-MCP entries
+- `filesystem`
+- `context7`
+- `git`
 
-Add one section per server below. A good entry covers: data accessed, secrets used, who you trust, mitigations.
+Optional examples to keep disabled by default unless required:
+
+- `github`
+- `fetch`
+- `memory`
+
+## Selection Criteria (from workshop)
+
+Use these criteria before adding any MCP:
+
+- **Maintainership**: active commits, recent release, healthy adoption
+- **Scope**: exposes only capabilities we need
+- **Secrets required**: understand key/OAuth/local-only requirements
+- **Transport**: choose `stdio` for local tools, `HTTP/SSE` for remote servers
+- **Trust**: prefer first-party and known maintainers over anonymous/community unknowns
+
+## Permission Hardening Levers
+
+1. **Scope arguments**
+   - Filesystem MCP must be limited to explicit directories (for example `./excalidraw-app`, `./examples`), never `/`.
+2. **Secrets via env**
+   - Use `${env:GH_PAT}` style variables, never plaintext tokens in config files.
+3. **Disable until needed**
+   - Mark sensitive/infrequently used MCPs with `"disabled": true`.
+4. **Pin versions**
+   - Example: `@modelcontextprotocol/server-filesystem@2025.10.20`.
+5. **Per-tool approval**
+   - Keep Cursor per-tool confirmation enabled unless there is an explicit reason to relax it.
+
+## Per-MCP Threat Notes
 
 ### filesystem (`@modelcontextprotocol/server-filesystem`)
 
-- **Data accessed:** read/write inside `./excalidraw-app` and `./examples` only.
-- **Secrets:** none.
-- **Trust:** first-party MCP reference server.
-- **Mitigations:** narrow root list; pinned version; no network access.
+- **Data accessed**: local files under configured roots only.
+- **Primary risk**: over-broad roots leak or modify unintended files.
+- **Mitigations**: strict root scoping, pinned version, approval prompts.
 
 ### context7 (`@upstash/context7-mcp`)
 
-- **Data accessed:** sends library/topic strings to the Context7 API; returns documentation snippets.
-- **Secrets:** none for the public tier; API key via env if you upgrade.
-- **Trust:** vendor-maintained.
-- **Mitigations:** outbound only to `context7.com`; no repo data leaves the machine.
+- **Data accessed**: library/doc lookup queries.
+- **Primary risk**: accidental external query content leakage.
+- **Mitigations**: avoid sending secrets, keep prompts minimal and technical.
 
-### github (`@modelcontextprotocol/server-github`) — disabled by default
+### git (`@modelcontextprotocol/server-git`)
 
-- **Data accessed:** repo metadata, issues, PRs, file contents on github.com.
-- **Secrets:** `GITHUB_PERSONAL_ACCESS_TOKEN` via `${env:GH_PAT}`.
-- **Trust:** first-party MCP reference server; PAT scope must be minimal (read-only unless creating PRs).
-- **Mitigations:** `disabled: true` until needed; rotate the PAT; never commit `mcp.json`.
+- **Data accessed**: repository history, diffs, metadata.
+- **Primary risk**: accidental destructive actions if permissions are too broad.
+- **Mitigations**: tool approval gates, clear operator intent, review before write actions.
 
-### excalidraw-scenes (custom)
+### github (optional, disabled by default)
 
-- **Data accessed:** reads `.excalidraw` files only (paths chosen by the agent, validated against the workspace).
-- **Secrets:** none.
-- **Trust:** local code, reviewed by the team.
-- **Mitigations:** path validation in the server; runs as a subprocess of the host; no network calls.
+- **Data accessed**: remote repo issues/PRs/files depending on token scope.
+- **Primary risk**: PAT over-permission and data exfiltration.
+- **Mitigations**: `"disabled": true` by default, minimal PAT scopes, env-injected tokens only.
 
-### `<your-custom-mcp>`
+### excalidraw-scenes (custom MCP)
 
-- **Data accessed:** ...
-- **Secrets:** ...
-- **Trust:** ...
-- **Mitigations:** ...
+- **Data accessed**: `.excalidraw` scene files and selected docs resource.
+- **Primary risk**: malformed path handling or over-permissive file access.
+- **Mitigations**: path validation, strict relative path handling, no secret handling, no `console.log` on stdio channel.
 
-## Incident response
+## Threat Checklist
 
-If a secret leaks (e.g., committed `.cursor/mcp.json`):
+If any answer is "no", stop and fix before enabling/committing:
 
-1. Rotate the token immediately on the issuing service.
-2. `git rm --cached .cursor/mcp.json` and force-push (history rewrite if needed).
-3. Audit recent tool-call logs in the host for anomalous activity.
-4. Add a regression test or pre-commit hook to prevent the same path next time.
+- Do I trust this server author/package?
+- Is the version pinned?
+- Are secrets injected via env (not stored in files)?
+- Is filesystem scope minimal?
+- Have I reviewed exposed tools in the MCP panel?
+
+## Incident Response
+
+If secrets leak or unsafe access is detected:
+
+1. Revoke/rotate the affected token immediately.
+2. Remove secrets from config/history and replace with `${env:VAR}`.
+3. Disable affected MCP (`"disabled": true`) until reviewed.
+4. Audit recent MCP tool usage in the IDE panel logs.
+5. Add preventive config changes before re-enabling.

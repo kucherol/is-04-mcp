@@ -1,0 +1,15 @@
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "./excalidraw-app", "./examples"]
+
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+
+[mcp_servers.git]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-git"]
+
+[mcp_servers.excalidraw-scenes]
+command = "node"
+args = ["./mcp-examples/excalidraw-scenes-ts/dist/server.js"]
